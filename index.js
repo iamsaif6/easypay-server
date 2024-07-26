@@ -11,6 +11,22 @@ const port = 3000;
 app.use(express.json());
 app.use(cors());
 
+//Verfify JWT Token Middleware
+const verifyToken = (req, res, next) => {
+  const token = req.headers.authorization.split(' ')[1];
+  if (!token) return res.send({ message: 'Invalid' }).status(400);
+  else if (token) {
+    jwt.verify(token, process.env.TOKEN, (err, decoded) => {
+      if (err) {
+        return res.send({ message: 'Unauthorized' }).status(401);
+      } else {
+        req.user = decoded;
+        next();
+      }
+    });
+  }
+};
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.mal3t53.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -53,7 +69,7 @@ async function run() {
         if (validPIN) {
           //Sent JWT token
           const token = jwt.sign({ username: userInfo.username }, process.env.TOKEN, { expiresIn: '1h' });
-          res.send({ user: true });
+          res.send({ user: userInfo.username, secret: isUser.pin, token: token });
           return;
         } else {
           res.send({ message: 'Invalid Credintial' }).status(401);
@@ -61,6 +77,37 @@ async function run() {
         }
       }
       console.log(userInfo);
+    });
+
+    //Check if user is authenticated and give role
+    app.post('/verify', verifyToken, async (req, res) => {
+      const username = req.body.username;
+      console.log(req.body.secret);
+      // Check if user is authenticated and give role
+      const query = {
+        $or: [
+          {
+            email: username,
+          },
+          {
+            phone: username,
+          },
+        ],
+      };
+      const result = await usersCollections.findOne(query);
+
+      if (!result) {
+        return res.send({ isVerified: false }).status(401);
+      } else if (result) {
+        // Compare passwords to ensure authentication
+        const validPIN = result.pin === req.body.secret;
+        console.log(validPIN);
+        if (validPIN) {
+          res.send({ isVerified: true }).status(200);
+        } else {
+          return res.send({ isVerified: false }).status(401);
+        }
+      }
     });
 
     await client.db('admin').command({ ping: 1 });
