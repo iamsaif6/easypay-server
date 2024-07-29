@@ -46,12 +46,15 @@ async function run() {
 
     const usersCollections = client.db('easyPay').collection('users');
 
-    //Setup User
+    //Register User
     app.post('/register', async (req, res) => {
       const user = req.body;
-      const existingUser = await usersCollections.findOne({ email: user.email });
+      const query = {
+        $or: [{ email: user.email }, { phone: user.phone }],
+      };
+      const existingUser = await usersCollections.findOne(query);
       if (existingUser) {
-        return res.send({ message: 'Email already exists' }).status(409);
+        return res.send({ message: 'Email or Phone already exists' }).status(409);
       }
       const hash = await bcrypt.hash(user.pin, 10);
       user.pin = hash;
@@ -101,9 +104,8 @@ async function run() {
       } else if (result) {
         // Compare passwords to ensure authentication
         const validPIN = result.pin === req.body.secret;
-        console.log(validPIN);
         if (validPIN) {
-          res.send({ isVerified: true }).status(200);
+          res.send({ isVerified: true, role: result.role }).status(200);
         } else {
           return res.send({ isVerified: false }).status(401);
         }
