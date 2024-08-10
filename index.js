@@ -1,7 +1,7 @@
 const express = require('express');
 const app = express();
 require('dotenv').config();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -46,6 +46,37 @@ async function run() {
 
     const usersCollections = client.db('easyPay').collection('users');
 
+    //Verify Admin Access
+    const verifyAdminAccess = async (req, res, next) => {
+      const username = req.body.username;
+      const secret = req.body.secret;
+      //return if username and secret are not there
+      if (!username || !secret) {
+        return res.send({ message: 'UnAthorized' }).status(401);
+      }
+      const query = {
+        $or: [
+          {
+            email: username,
+          },
+          {
+            phone: username,
+          },
+        ],
+      };
+      const result = await usersCollections.findOne(query);
+      if (!result) {
+        return res.send({ message: forbidden }).status(401);
+      }
+      const validPIN = result.pin === secret;
+      if (validPIN) {
+        if (result.role !== 'admin') {
+          return res.send({ message: forbidden }).status(401);
+        }
+        next();
+      }
+    };
+
     //Register User
     app.post('/register', async (req, res) => {
       const user = req.body;
@@ -58,6 +89,9 @@ async function run() {
       }
       const hash = await bcrypt.hash(user.pin, 10);
       user.pin = hash;
+      // Set New User Status to pending
+      user.status = 'pending';
+      user.balance = 0;
       const result = await usersCollections.insertOne(user);
       res.send(result);
     });
@@ -75,17 +109,19 @@ async function run() {
           res.send({ user: userInfo.username, secret: isUser.pin, token: token });
           return;
         } else {
+          console.log('not found');
           res.send({ message: 'Invalid Credintial' }).status(401);
           return;
         }
+      } else {
+        res.send({ message: 'Invalid Credintial' }).status(401);
+        return;
       }
-      console.log(userInfo);
     });
 
     //Check if user is authenticated and give role
     app.post('/verify', verifyToken, async (req, res) => {
       const username = req.body.username;
-      console.log(req.body.secret);
       // Check if user is authenticated and give role
       const query = {
         $or: [
@@ -110,6 +146,26 @@ async function run() {
           return res.send({ isVerified: false }).status(401);
         }
       }
+    });
+
+    // Give User Info to Admin
+    app.post('/users', verifyToken, verifyAdminAccess, async (req, res) => {
+      const query = { role: 'user' };
+      const result = await usersCollections.find(query).toArray();
+      res.send(result);
+    });
+
+    //Give user approve role
+    app.patch('/approve', verifyToken, verifyAdminAccess, async (req, res) => {
+      const id = req.body.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          status: 'approved',
+        },
+      };
+      const result = await usersCollections.updateOne(query, updateDoc);
+      res.send(result);
     });
 
     await client.db('admin').command({ ping: 1 });
