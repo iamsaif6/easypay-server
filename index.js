@@ -92,6 +92,7 @@ async function run() {
       // Set New User Status to pending
       user.status = 'pending';
       user.balance = 0;
+      user.isBlocked = false;
       const result = await usersCollections.insertOne(user);
       res.send(result);
     });
@@ -155,6 +156,27 @@ async function run() {
       res.send(result);
     });
 
+    // Give User Info to Admin
+    app.post('/agents', verifyToken, verifyAdminAccess, async (req, res) => {
+      const query = { role: 'agent' };
+      const result = await usersCollections.find(query).toArray();
+      res.send(result);
+    });
+
+    //Give user approve role
+    app.patch('/agentApprove', verifyToken, verifyAdminAccess, async (req, res) => {
+      const id = req.body.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          status: 'approved',
+          balance: 10000,
+        },
+      };
+      const result = await usersCollections.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
     //Give user approve role
     app.patch('/approve', verifyToken, verifyAdminAccess, async (req, res) => {
       const id = req.body.id;
@@ -162,6 +184,33 @@ async function run() {
       const updateDoc = {
         $set: {
           status: 'approved',
+          balance: 40,
+        },
+      };
+      const result = await usersCollections.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
+    //Give block permission
+    app.patch('/block', verifyToken, verifyAdminAccess, async (req, res) => {
+      const id = req.body.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          isBlocked: true,
+        },
+      };
+      const result = await usersCollections.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
+    //Give block permission
+    app.patch('/unblock', verifyToken, verifyAdminAccess, async (req, res) => {
+      const id = req.body.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          isBlocked: false,
         },
       };
       const result = await usersCollections.updateOne(query, updateDoc);
