@@ -46,7 +46,7 @@ async function run() {
 
     const usersCollections = client.db('easyPay').collection('users');
 
-    //Verify Admin Access
+    //Verify Admin Access || Middleware
     const verifyAdminAccess = async (req, res, next) => {
       const username = req.body.username;
       const secret = req.body.secret;
@@ -71,8 +71,40 @@ async function run() {
       const validPIN = result.pin === secret;
       if (validPIN) {
         if (result.role !== 'admin') {
-          return res.send({ message: forbidden }).status(401);
+          return res.send({ message: 'forbidden' }).status(401);
         }
+        next();
+      }
+    };
+
+    //Verify PIN || Middleware
+    const verifyPIN = async (req, res, next) => {
+      const username = req.body.userInfo;
+      const pin = req.body.pin;
+      // Check if user is authenticated and give role
+      const query = {
+        $or: [
+          {
+            email: username,
+          },
+          {
+            phone: username,
+          },
+        ],
+      };
+      const result = await usersCollections.findOne(query);
+
+      if (!result) {
+        return res.send({ message: 'User info not valid', code: 402 }).status(402);
+      } else if (result) {
+        // Compare passwords to ensure authentication
+        const validPIN = await bcrypt.compare(pin, result.pin);
+        if (!validPIN) {
+          return res.send({ message: 'Invalid PIN', code: 401 }).status(401);
+        } else if (result.status === 'pending') {
+          return res.send({ message: 'Your account is not approved', code: 406 }).status(401);
+        }
+
         next();
       }
     };
@@ -156,7 +188,7 @@ async function run() {
       res.send(result);
     });
 
-    // Give User Info to Admin
+    // Give Agents Info to Admin
     app.post('/agents', verifyToken, verifyAdminAccess, async (req, res) => {
       const query = { role: 'agent' };
       const result = await usersCollections.find(query).toArray();
@@ -215,6 +247,47 @@ async function run() {
       };
       const result = await usersCollections.updateOne(query, updateDoc);
       res.send(result);
+    });
+
+    // Transsactions API'S
+
+    //Send Money API
+    app.post('/send-money', verifyToken, verifyPIN, async (req, res) => {
+      const data = req.body;
+      const senderQuery = {
+        $or: [
+          {
+            email: data.userInfo,
+          },
+          {
+            phone: data.userInfo,
+          },
+        ],
+      };
+      const sender = await usersCollections.findOne(senderQuery);
+      //Check if sender has enough balance
+      if (sender.balance < data.amount) {
+        return res.send({ message: 'Insufficient Balance', code: 403 });
+      }
+      if (sender.isBlocked) {
+        return res.send({ message: 'Your account is blocked', code: 404 });
+      }
+
+      //Check if the receiver account is valid
+      const receiverQuery = {
+        $or: [
+          {
+            email: data.receiver_email,
+          },
+          {
+            phone: data.receiver_email,
+          },
+        ],
+      };
+      const receiver = await usersCollections.findOne(receiverQuery);
+      if (!receiver) {
+        return res.send({ message: 'Invalid receiver account', code: 405 });
+      }
     });
 
     await client.db('admin').command({ ping: 1 });
